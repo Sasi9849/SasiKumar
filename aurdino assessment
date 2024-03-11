@@ -1,0 +1,80 @@
+#include <avr/io.h>
+#include <avr/interrupt.h>
+
+#define ledPin 13 // Onboard LED pin
+#define sensorPin A0 // LM35 sensor pin
+
+#define lowTempThreshold 30 // Low temperature threshold in Celsius
+#define lowBlinkInterval 250 // Blink interval in milliseconds when temperature is below lowTempThreshold
+#define highBlinkInterval 500 // Blink interval in milliseconds when temperature is above lowTempThreshold
+
+volatile int sensorValue = 0;
+volatile float temperature = 0;
+volatile int blinkInterval = lowBlinkInterval;
+volatile unsigned long timerCount = 0;
+
+void setup() {
+  pinMode(ledPin, OUTPUT);
+  pinMode(sensorPin, INPUT);
+
+  // Configure Timer2 to generate an interrupt every 1 millisecond
+  if (!configureTimer2()) {
+    // Handle error: Unable to configure Timer2
+    Serial.println("Error: Unable to configure Timer2");
+  }
+}
+
+bool configureTimer2() {
+  // Disable Timer2 interrupt
+  TIMSK2 &= ~(1 << OCIE2A);
+
+  // Set up Timer2 to generate an interrupt every 1 millisecond
+  TCCR2A = 0;
+  TCCR2B = 0;
+  TCNT2 = 0;
+  OCR2A = 249; // Set the timer period to 1 ms
+  TCCR2A |= (1 << WGM21); // CTC mode
+  TCCR2B |= (1 << CS22) | (1 << CS21) | (1 << CS20); // Set the prescaler to 1024
+
+  // Enable Timer2 interrupt
+  TIMSK2 |= (1 << OCIE2A);
+
+  // Check if Timer2 configuration was successful
+  return (TCCR2B & ((1 << CS22) | (1 << CS21) | (1 << CS20))) != 0;
+}
+
+ISR(TIMER2_COMPA_vect) {
+  // Increment timer count
+  timerCount++;
+
+  // Read sensor value every 100 milliseconds
+  if (timerCount % 100 == 0) {
+    sensorValue = analogRead(sensorPin);
+
+    // Check for error reading sensor value
+    if (sensorValue == -1) {
+      // Handle error: Unable to read sensor value
+        Serial.println("Error: Unable to read sensor value");
+      return;
+    }
+
+    float voltage = sensorValue * (5.0 / 1024.0);
+    temperature = voltage * 100.0;
+  }
+
+  // Control LED blinking based on temperature
+  if (temperature >= lowTempThreshold) {
+    if (timerCount % highBlinkInterval == 0) {
+      digitalWrite(ledPin, !digitalRead(ledPin));
+    }
+  } else {
+    if (timerCount % lowBlinkInterval == 0) {
+      digitalWrite(ledPin, !digitalRead(ledPin));
+    }
+  }
+}
+
+void loop() {
+  // Nothing to do here, the interrupt handler will take care of the temperature sensing and LED blinking
+}
+
